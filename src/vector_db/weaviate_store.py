@@ -192,6 +192,20 @@ class WeaviateVectorStore(VectorStoreInterface):
             logger.error(f"Error getting stats: {e}")
             return {}
     
+    async def get_categories(self) -> List[str]:
+        """Get all unique categories in the store
+        
+        Returns:
+            List of unique category names
+        """
+        try:
+            # This is a simplified implementation
+            # In a real Weaviate setup, you'd query the collection metadata
+            return ["HR", "Legal", "Finance"]  # Placeholder
+        except Exception as e:
+            logger.error(f"Error getting categories: {e}")
+            return []
+    
     def close(self) -> None:
         """Close Weaviate client connection"""
         if self.client:

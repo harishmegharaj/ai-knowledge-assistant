@@ -57,3 +57,12 @@ class VectorStoreInterface(ABC):
             Dictionary with store statistics
         """
         pass
+    
+    @abstractmethod
+    async def get_categories(self) -> List[str]:
+        """Get all unique categories in the store
+        
+        Returns:
+            List of unique category names
+        """
+        pass

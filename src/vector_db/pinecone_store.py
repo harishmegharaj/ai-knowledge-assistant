@@ -180,3 +180,17 @@ class PineconeVectorStore(VectorStoreInterface):
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
             return {}
+    
+    async def get_categories(self) -> List[str]:
+        """Get all unique categories in the store
+        
+        Returns:
+            List of unique category names
+        """
+        try:
+            # This is a simplified implementation
+            # In a real Pinecone setup, you'd query the index metadata
+            return ["HR", "Legal", "Finance"]  # Placeholder
+        except Exception as e:
+            logger.error(f"Error getting categories: {e}")
+            return []

@@ -8,8 +8,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain.callbacks.base import BaseCallbackHandler
-from langchain_community.retrievers import PineconeRetriever, FAISSRetriever
-from langchain_community.vectorstores import Pinecone, FAISS
+from langchain_community.llms import FakeListLLM
 
 from src.config import Settings
 from src.vector_db.factory import VectorDBFactory
@@ -41,12 +40,19 @@ class AIAssistant:
         """
         self.settings = settings
         self.vector_store = VectorDBFactory.create_vector_store(settings)
-        self.llm = ChatOpenAI(
-            openai_api_key=settings.openai_api_key,
-            model_name=settings.openai_model,
-            temperature=0.7,
-            streaming=True,
-        )
+        
+        # Use fake LLM for testing when no API key
+        if settings.openai_api_key:
+            self.llm = ChatOpenAI(
+                openai_api_key=settings.openai_api_key,
+                model_name=settings.openai_model,
+                temperature=0.7,
+                streaming=True,
+            )
+        else:
+            # Stub LLM for testing without API key
+            self.llm = FakeListLLM(responses=["This is a stub response for testing purposes. Please provide an OpenAI API key for actual AI responses."])
+        
         self.embeddings = HuggingFaceEmbeddings(
             model_name=settings.embedding_model
         )
@@ -102,6 +108,7 @@ Answer:"""
         query: str,
         top_k: Optional[int] = None,
         stream: bool = False,
+        category: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query the knowledge base
         
@@ -109,16 +116,17 @@ Answer:"""
             query: User query
             top_k: Number of relevant documents to retrieve
             stream: Whether to stream the response
+            category: Filter by document category
             
         Returns:
             Dictionary with answer and metadata
         """
         top_k = top_k or self.settings.top_k_results
         
-        logger.info(f"Processing query: {query}")
+        logger.info(f"Processing query: {query} (category: {category})")
         
         # Search vector store
-        search_results = await self.vector_store.search(query, k=top_k)
+        search_results = await self.vector_store.search(query, k=top_k, category=category)
         
         if not search_results:
             logger.warning("No relevant documents found")
@@ -163,6 +171,14 @@ Answer:"""
             "sources": sources,
             "confidence": search_results[0][1] if search_results else 0.0,
         }
+    
+    async def get_categories(self) -> List[str]:
+        """Get all available document categories
+        
+        Returns:
+            List of unique category names
+        """
+        return await self.vector_store.get_categories()
     
     async def delete_documents(self, doc_ids: List[str]) -> bool:
         """Delete documents from knowledge base

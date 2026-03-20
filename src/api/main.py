@@ -33,8 +33,9 @@ async def lifespan(app: FastAPI):
         assistant = AIAssistant(settings)
         logger.info("Assistant initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize assistant: {e}")
-        raise
+        logger.warning(f"Failed to initialize assistant (API key missing?): {e}")
+        logger.warning("API will start but AI features will be unavailable")
+        assistant = None
     
     yield
     
@@ -65,6 +66,7 @@ class Document(BaseModel):
     """Document model"""
     content: str = Field(..., description="Document content")
     source: Optional[str] = Field(None, description="Document source")
+    category: Optional[str] = Field(None, description="Document category (e.g., HR, Legal, Finance)")
     metadata: Optional[dict] = Field(None, description="Additional metadata")
 
 
@@ -73,6 +75,7 @@ class QueryRequest(BaseModel):
     query: str = Field(..., description="User query")
     top_k: Optional[int] = Field(5, description="Number of results")
     stream: Optional[bool] = Field(False, description="Stream response")
+    category: Optional[str] = Field(None, description="Filter by document category")
 
 
 class QueryResponse(BaseModel):
@@ -118,6 +121,7 @@ async def add_documents(documents: List[Document]):
             {
                 "content": doc.content,
                 "source": doc.source or "unknown",
+                "category": doc.category,
                 **(doc.metadata or {}),
             }
             for doc in documents
@@ -158,6 +162,7 @@ async def query_knowledge_base(request: QueryRequest):
             query=request.query,
             top_k=request.top_k,
             stream=request.stream,
+            category=request.category,
         )
         
         return QueryResponse(
@@ -196,22 +201,21 @@ async def delete_document(doc_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/stats", response_model=StatsResponse)
-async def get_statistics():
-    """Get assistant statistics
+@app.get("/categories")
+async def get_categories():
+    """Get all available document categories
     
     Returns:
-        StatsResponse with statistics
+        List of unique categories
     """
     if not assistant:
         raise HTTPException(status_code=500, detail="Assistant not initialized")
     
     try:
-        stats = await assistant.get_stats()
-        return StatsResponse(stats=stats)
-    
+        categories = await assistant.get_categories()
+        return {"categories": categories}
     except Exception as e:
-        logger.error(f"Error getting statistics: {e}")
+        logger.error(f"Error getting categories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

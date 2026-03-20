@@ -111,7 +111,7 @@ class FAISSVectorStore(VectorStoreInterface):
         
         # Get embeddings
         logger.info(f"Generating embeddings for {len(texts)} texts")
-        embeddings = self.embeddings.encode(texts, convert_to_list=True)
+        embeddings = self.embeddings.encode(texts)
         embeddings = np.array(embeddings, dtype=np.float32)
         
         # Add to index
@@ -134,6 +134,7 @@ class FAISSVectorStore(VectorStoreInterface):
         self,
         query: str,
         k: int = 5,
+        category: Optional[str] = None,
         **kwargs
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """Search for similar texts in FAISS
@@ -141,17 +142,19 @@ class FAISSVectorStore(VectorStoreInterface):
         Args:
             query: Query text
             k: Number of results to return
+            category: Filter by document category
             
         Returns:
             List of (text, score, metadata) tuples
         """
         # Get query embedding
-        query_embedding = self.embeddings.encode(query, convert_to_list=True)
+        query_embedding = self.embeddings.encode(query)
         query_embedding = np.array([query_embedding], dtype=np.float32)
         
-        # Search FAISS
-        logger.info(f"Searching FAISS for top {k} similar documents")
-        distances, indices = self.index.search(query_embedding, k)
+        # Search FAISS with higher k if filtering by category
+        search_k = k * 3 if category else k  # Get more results if filtering
+        logger.info(f"Searching FAISS for top {search_k} similar documents")
+        distances, indices = self.index.search(query_embedding, search_k)
         
         # Extract results
         output = []
@@ -165,9 +168,19 @@ class FAISSVectorStore(VectorStoreInterface):
                 doc_id = stored_ids[idx]
                 meta = self.metadata_store.get(doc_id, {})
                 text = meta.get("text", "")
+                
+                # Filter by category if specified
+                doc_category = meta.get("category")
+                if category and doc_category != category:
+                    continue
+                    
                 score = 1.0 / (1.0 + distance)  # Convert distance to similarity score
                 meta = {k: v for k, v in meta.items() if k != "text"}
                 output.append((text, score, meta))
+                
+                # Stop if we have enough results
+                if len(output) >= k:
+                    break
         
         return output
     
@@ -192,15 +205,15 @@ class FAISSVectorStore(VectorStoreInterface):
             logger.error(f"Error deleting documents: {e}")
             return False
     
-    async def get_stats(self) -> Dict[str, Any]:
-        """Get FAISS index statistics
+    async def get_categories(self) -> List[str]:
+        """Get all unique categories in the store
         
         Returns:
-            Dictionary with index statistics
+            List of unique category names
         """
-        return {
-            "total_vectors": self.index.ntotal,
-            "dimension": self.embedding_dim,
-            "index_path": self.index_path,
-            "stored_documents": len(self.metadata_store),
-        }
+        categories = set()
+        for meta in self.metadata_store.values():
+            category = meta.get("category")
+            if category:
+                categories.add(category)
+        return sorted(list(categories))
