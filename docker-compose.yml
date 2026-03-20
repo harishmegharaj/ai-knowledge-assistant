@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # AI Assistant API
+  ai-assistant:
+    build: .
+    container_name: ai-assistant-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VECTOR_DB_TYPE=${VECTOR_DB_TYPE:-faiss}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
+      - WEAVIATE_URL=${WEAVIATE_URL:-http://weaviate:8080}
+      - FAISS_INDEX_PATH=${FAISS_INDEX_PATH:-./data/faiss_index}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - weaviate
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Weaviate Vector Database (Optional)
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    container_name: weaviate-db
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 100
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'none'
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: unless-stopped
+    profiles:
+      - weaviate  # Only start if explicitly requested: docker-compose --profile weaviate up
+
+volumes:
+  weaviate_data:
+
+networks:
+  default:
+    name: ai-assistant-network
