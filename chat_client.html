@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Knowledge Assistant - WebSocket Chat</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .chat-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 20px;
+            background: #fafafa;
+            border-radius: 5px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        .user-message {
+            background: #007bff;
+            color: white;
+            text-align: right;
+        }
+        .assistant-message {
+            background: #e9ecef;
+            color: black;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #218838;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .sources {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h1>AI Knowledge Assistant</h1>
+        <div id="status" class="status disconnected">Disconnected</div>
+
+        <div id="messages" class="messages"></div>
+
+        <div class="input-group">
+            <select id="category">
+                <option value="">All Categories</option>
+                <option value="HR">HR</option>
+                <option value="Legal">Legal</option>
+                <option value="Finance">Finance</option>
+                <option value="IT">IT</option>
+            </select>
+            <input type="text" id="messageInput" placeholder="Ask a question..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()" id="sendButton">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const statusDiv = document.getElementById('status');
+        const categorySelect = document.getElementById('category');
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8000/ws/chat');
+
+            ws.onopen = function(event) {
+                statusDiv.textContent = 'Connected';
+                statusDiv.className = 'status connected';
+                console.log('Connected to WebSocket');
+            };
+
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'response') {
+                    addMessage('assistant', data.answer);
+
+                    if (data.sources && data.sources.length > 0) {
+                        const sourcesHtml = data.sources.map(source =>
+                            `<div class="sources">📄 ${source.text.substring(0, 100)}... (score: ${source.score.toFixed(2)})</div>`
+                        ).join('');
+                        addMessage('system', `Sources:${sourcesHtml}`);
+                    }
+                } else if (data.type === 'error') {
+                    addMessage('error', `Error: ${data.error}`);
+                }
+            };
+
+            ws.onclose = function(event) {
+                statusDiv.textContent = 'Disconnected';
+                statusDiv.className = 'status disconnected';
+                console.log('Disconnected from WebSocket');
+                // Auto-reconnect after 3 seconds
+                setTimeout(connect, 3000);
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                addMessage('error', 'Connection error occurred');
+            };
+        }
+
+        function addMessage(type, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            messageDiv.innerHTML = content;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            const category = categorySelect.value;
+
+            if (!message) return;
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Add user message to UI
+                addMessage('user', message);
+
+                // Send to server
+                ws.send(JSON.stringify({
+                    query: message,
+                    category: category || null,
+                    session_id: 'web-client'
+                }));
+
+                messageInput.value = '';
+            } else {
+                addMessage('error', 'Not connected to server. Please wait for reconnection.');
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Connect on page load
+        connect();
+
+        // Update send button state based on connection
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                sendButton.disabled = false;
+            } else {
+                sendButton.disabled = true;
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

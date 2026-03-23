@@ -4,13 +4,17 @@ import logging
 from typing import List, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import StreamingResponse
+import json
+from fastapi import BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from src.config import Settings, LogConfig
 from src.ai_assistant import AIAssistant
 from src.ai_assistant.document_processor import DocumentProcessor
+from langchain.callbacks.base import BaseCallbackHandler
 
 # Setup logging
 LogConfig.setup_logging("INFO", "json")
@@ -54,10 +58,11 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:8080", "http://127.0.0.1:8080", "null"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Cache-Control", "Keep-Alive", "Content-Type", "Expires", "Pragma", "Access-Control-Allow-Origin"],
 )
 
 
@@ -142,6 +147,129 @@ async def add_documents(documents: List[Document]):
     except Exception as e:
         logger.error(f"Error adding documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    """WebSocket endpoint for real-time chat
+    
+    Maintains persistent connection for conversational AI
+    """
+    await websocket.accept()
+    
+    # Store conversation history for this session
+    conversation_history = []
+    
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_text()
+            message_data = json.loads(data)
+            
+            query = message_data.get("query", "")
+            category = message_data.get("category")
+            session_id = message_data.get("session_id", "default")
+            
+            if not assistant:
+                await websocket.send_json({
+                    "error": "Assistant not initialized",
+                    "type": "error"
+                })
+                continue
+            
+            try:
+                # Add user message to history
+                conversation_history.append({"role": "user", "content": query})
+                
+                # Query the knowledge base
+                result = await assistant.query(
+                    query=query,
+                    top_k=5,
+                    stream=False,  # WebSocket handles streaming differently
+                    category=category
+                )
+                
+                # Add assistant response to history
+                conversation_history.append({"role": "assistant", "content": result["answer"]})
+                
+                # Send response back to client
+                response_data = {
+                    "answer": result["answer"],
+                    "sources": result["sources"],
+                    "confidence": result["confidence"],
+                    "conversation_history": conversation_history[-10:],  # Last 10 messages
+                    "type": "response"
+                }
+                
+                await websocket.send_json(response_data)
+                
+            except Exception as e:
+                logger.error(f"WebSocket query error: {e}")
+                await websocket.send_json({
+                    "error": str(e),
+                    "type": "error"
+                })
+                
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+
+
+@app.post("/query/stream")
+async def stream_query(request: QueryRequest):
+    """Streaming query endpoint using Server-Sent Events
+    
+    Returns:
+        StreamingResponse with real-time token updates
+    """
+    if not assistant:
+        raise HTTPException(status_code=500, detail="Assistant not initialized")
+    
+    async def generate_response():
+        try:
+            # Custom streaming callback for SSE
+            class SSECallbackHandler(BaseCallbackHandler):
+                def __init__(self):
+                    self.tokens = []
+                
+                def on_llm_new_token(self, token: str, **kwargs) -> None:
+                    self.tokens.append(token)
+                    # Send token as SSE event
+                    yield f"data: {json.dumps({'token': token, 'type': 'token'})}\n\n"
+            
+            callback = SSECallbackHandler()
+            
+            result = await assistant.query(
+                query=request.query,
+                top_k=request.top_k,
+                stream=True,
+                category=request.category,
+                callback_handler=callback
+            )
+            
+            # Send final result
+            final_data = {
+                "answer": result["answer"],
+                "sources": result["sources"],
+                "confidence": result["confidence"],
+                "type": "complete"
+            }
+            yield f"data: {json.dumps(final_data)}\n\n"
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            error_data = {"error": str(e), "type": "error"}
+            yield f"data: {json.dumps(error_data)}\n\n"
+    
+    return StreamingResponse(
+        generate_response(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 @app.post("/query", response_model=QueryResponse)

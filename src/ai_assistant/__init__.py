@@ -109,6 +109,7 @@ Answer:"""
         top_k: Optional[int] = None,
         stream: bool = False,
         category: Optional[str] = None,
+        callback_handler: Optional[BaseCallbackHandler] = None,
     ) -> Dict[str, Any]:
         """Query the knowledge base
         
@@ -144,17 +145,30 @@ Answer:"""
         prompt_input = self.prompt.format(context=context, question=query)
         
         # Get LLM response
-        callback = StreamingCallbackHandler() if stream else None
-        callbacks = [callback] if callback else []
-        
-        try:
-            response = await self.llm.apredict(
-                prompt_input,
-                callbacks=callbacks,
-            )
-        except Exception as e:
-            logger.error(f"Error generating response: {e}")
-            response = "I encountered an error while processing your query."
+        if stream and callback_handler:
+            # Streaming mode with custom callback
+            try:
+                response = await self.llm.apredict(
+                    prompt_input,
+                    callbacks=[callback_handler],
+                )
+                # Return both the final response and any streaming data
+                return {
+                    "answer": response,
+                    "sources": sources,
+                    "confidence": search_results[0][1] if search_results else 0.0,
+                    "streaming_tokens": getattr(callback_handler, 'tokens', []),
+                }
+            except Exception as e:
+                logger.error(f"Error generating streaming response: {e}")
+                response = "I encountered an error while processing your query."
+        else:
+            # Non-streaming mode
+            try:
+                response = await self.llm.apredict(prompt_input)
+            except Exception as e:
+                logger.error(f"Error generating response: {e}")
+                response = "I encountered an error while processing your query."
         
         # Prepare sources
         sources = [

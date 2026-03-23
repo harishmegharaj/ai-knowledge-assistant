@@ -217,3 +217,19 @@ class FAISSVectorStore(VectorStoreInterface):
             if category:
                 categories.add(category)
         return sorted(list(categories))
+    
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get FAISS index statistics
+        
+        Returns:
+            Dictionary with index statistics
+        """
+        try:
+            return {
+                "total_vectors": self.index.ntotal,
+                "dimension": self.embedding_dim,
+                "index_path": self.index_path,
+            }
+        except Exception as e:
+            logger.error(f"Error getting stats: {e}")
+            return {}

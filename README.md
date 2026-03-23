@@ -8,10 +8,42 @@ A production-ready AI Knowledge Assistant built with Python, LangChain, and supp
 - **LangChain Integration**: Powerful LLM orchestration with customizable chains
 - **Production-Ready**: Comprehensive logging, error handling, and monitoring
 - **Multiple Interfaces**: REST API, CLI, and Python library
+- **Multiple Communication Protocols**: REST API, WebSocket, and Server-Sent Events (SSE)
 - **Async/Await Support**: Fully asynchronous architecture
 - **Document Processing**: Smart chunking with overlap for better context
+- **Document Categorization**: Organize documents by categories (HR, Legal, Finance, etc.)
 - **Type Safety**: Full type hints throughout the codebase
 - **Configuration Management**: Environment-based configuration
+
+## 📡 Communication Options
+
+### REST API (Standard)
+Traditional request-response pattern for one-off queries:
+```bash
+POST /query
+{
+  "query": "What is AI?",
+  "category": "HR",
+  "top_k": 5
+}
+```
+
+### WebSocket (Persistent Connection)
+Real-time bidirectional communication for chat applications:
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws/chat');
+ws.send(JSON.stringify({query: "Hello", category: "HR"}));
+```
+
+### Server-Sent Events (Streaming)
+HTTP streaming for real-time token-by-token responses:
+```bash
+POST /query/stream
+{
+  "query": "What is AI?",
+  "stream": true
+}
+```
 
 ## 📋 Prerequisites
 
@@ -109,8 +141,8 @@ asyncio.run(main())
 ### Using REST API
 
 ```bash
-# Start server
-python -m uvicorn src.api.main:app --reload
+# Start API server
+python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 # Add documents (in another terminal)
 curl -X POST http://localhost:8000/documents/add \
@@ -137,6 +169,34 @@ curl http://localhost:8000/stats
 
 # Health check
 curl http://localhost:8000/health
+```
+
+### Using Chat Client (WebSocket)
+
+```bash
+# Start API server (if not already running)
+python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Serve the demo client over local HTTP to avoid file:// CORS issues
+cd /Users/harishashokmegharaj/reactnext/AIProject/ai-knowledge-assistant
+python -m http.server 8080
+
+# Open WebSocket client in browser:
+http://localhost:8080/chat_client.html
+```
+
+### Using Streaming Client (SSE)
+
+```bash
+# Start API server (same as above)
+python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Serve the demo client over local HTTP
+cd /Users/harishashokmegharaj/reactnext/AIProject/ai-knowledge-assistant
+python -m http.server 8080
+
+# Open SSE streaming client in browser:
+http://localhost:8080/streaming_test.html
 ```
 
 ### Using CLI

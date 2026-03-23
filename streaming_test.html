@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Knowledge Assistant - Streaming Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .response {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background: #fafafa;
+            min-height: 100px;
+            white-space: pre-wrap;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+        .streaming {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .complete {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI Knowledge Assistant - Streaming Test</h1>
+
+        <div class="input-group">
+            <select id="category">
+                <option value="">All Categories</option>
+                <option value="HR">HR</option>
+                <option value="Legal">Legal</option>
+                <option value="Finance">Finance</option>
+                <option value="IT">IT</option>
+            </select>
+            <input type="text" id="queryInput" placeholder="Enter your query..." value="What is artificial intelligence?">
+            <button onclick="testStreaming()" id="testButton">Test Streaming</button>
+        </div>
+
+        <div id="response" class="response">Response will appear here...</div>
+    </div>
+
+    <script>
+        let currentResponse = '';
+
+        async function testStreaming() {
+            const query = document.getElementById('queryInput').value.trim();
+            const category = document.getElementById('category').value;
+            const responseDiv = document.getElementById('response');
+            const testButton = document.getElementById('testButton');
+
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+
+            // Reset response
+            currentResponse = '';
+            responseDiv.textContent = 'Streaming response...\n';
+            responseDiv.className = 'response streaming';
+            testButton.disabled = true;
+
+            try {
+                const requestData = {
+                    query: query,
+                    top_k: 5,
+                    stream: true
+                };
+
+                if (category) {
+                    requestData.category = category;
+                }
+
+                const response = await fetch('http://localhost:8000/query/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+
+                            if (data === '[DONE]') {
+                                responseDiv.className = 'response complete';
+                                testButton.disabled = false;
+                                return;
+                            }
+
+                            try {
+                                const parsed = JSON.parse(data);
+
+                                if (parsed.type === 'token') {
+                                    currentResponse += parsed.token;
+                                    responseDiv.textContent = currentResponse;
+                                } else if (parsed.type === 'complete') {
+                                    responseDiv.className = 'response complete';
+                                    responseDiv.textContent = `Final Answer: ${parsed.answer}\n\nConfidence: ${parsed.confidence}\n\nSources: ${parsed.sources.length} found`;
+                                } else if (parsed.type === 'error') {
+                                    responseDiv.className = 'response error';
+                                    responseDiv.textContent = `Error: ${parsed.error}`;
+                                }
+                            } catch (e) {
+                                console.log('Parsing error:', e);
+                            }
+                        }
+                    }
+                }
+
+            } catch (error) {
+                responseDiv.className = 'response error';
+                responseDiv.textContent = `Error: ${error.message}`;
+                testButton.disabled = false;
+            }
+        }
+
+        // Allow Enter key to trigger test
+        document.getElementById('queryInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                testStreaming();
+            }
+        });
+    </script>
+</body>
+</html>
